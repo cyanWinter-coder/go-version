@@ -72,6 +72,58 @@ if constraints.Check(v1) {
 }
 ```
 
+#### Version Planning
+
+`Plan` selects the candidate versions that satisfy several named constraint
+groups at once, and reports why planning failed when nothing is feasible.
+Constraint checking uses the same rules as `Constraints.Check`, including
+prerelease and metadata handling.
+
+```go
+result, err := version.PlanStrings(
+    []string{"1.2.0", "1.4.1", "1.5.0", "2.0.0"},
+    []version.ConstraintGroupExpr{
+        {Name: "runtime", Expr: ">= 1.2, < 2.0"},
+        {Name: "api", Expr: "~> 1.4.0"},
+    },
+)
+if err != nil {
+    // The whole input is rejected if any version or constraint is invalid.
+    return err
+}
+
+fmt.Println(result.Feasible)               // [1.4.1]
+fmt.Println(result.Lowest, result.Highest) // 1.4.1 1.4.1
+
+infeasible, err := version.PlanStrings(
+    []string{"1.0.0", "1.5.0"},
+    []version.ConstraintGroupExpr{
+        {Name: "runtime", Expr: ">= 1.5"},
+        {Name: "api", Expr: "< 1.2"},
+    },
+)
+fmt.Println(infeasible.Reason)     // conflicting-constraints
+fmt.Println(infeasible.Conflicts[0]) // constraint conflict between groups "runtime", "api": ... lower bound 1.5.0; upper bound 1.2.0
+fmt.Println(infeasible.Conflicts[0].Lower, infeasible.Conflicts[0].Upper) // 1.5.0 1.2.0
+```
+
+`Plan` takes already-parsed `*Version` candidates and `ConstraintGroup`
+values; `PlanVersions` is a variadic wrapper, and `NewPlanner` captures a fixed
+set of groups for repeated use. Duplicate candidates are collapsed, the
+feasible set is sorted in ascending order, and `Reason` distinguishes a
+genuinely contradictory constraint set (`ReasonConflictingConstraints`) from a
+set that is satisfiable but matches none of the candidates
+(`ReasonNoMatchingCandidate`) and from an empty candidate list
+(`ReasonNoCandidates`). Planning only reads its arguments, so the same groups
+can be shared across goroutines.
+
+Every reported conflict is checked against the existing constraint functions
+before it is returned, because `Compare` treats versions with different segment
+counts as equal in ways that are not transitive (`1.0.0`, `1.0.0.0`, and
+`1.0.0-alpha`). Conflict detection therefore only reports provable
+contradictions; a satisfiable set that the analysis does not recognize is
+reported as `ReasonNoMatchingCandidate` with the required bounds instead.
+
 #### Version Sorting
 
 ```go
